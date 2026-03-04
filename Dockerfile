@@ -34,4 +34,4 @@ COPY --from=builder /root/.EasyOCR /root/.EasyOCR
 COPY app/ ${LAMBDA_TASK_ROOT}/money_api/
 
 # Lambda handler entry point
-CMD ["monye_api.lambda_handler.handler"]
+CMD ["money_api.lambda_handler.handler"]
