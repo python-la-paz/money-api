@@ -14,8 +14,8 @@ from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import JSONResponse, Response
 import base64
 
-from .detector import analyze_bill, OBSERVED_RANGES
-from .models import AnalysisResponse, RangeInput
+from detector import analyze_bill, OBSERVED_RANGES
+from models import AnalysisResponse, RangeInput
 
 app = FastAPI(
     title="Bolivian Banknote Detector API",
@@ -141,3 +141,9 @@ def health():
         "status": "ok",
         "configured_ranges": {k: len(v) for k, v in OBSERVED_RANGES.items()},
     }
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run(app, host="0.0.0.0", port=8000)
