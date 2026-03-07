@@ -77,7 +77,12 @@ def get_reader():
     global _reader
     if _reader is None:
         model_dir = os.environ.get("EASYOCR_MODEL_DIR")
-        kwargs = {"lang_list": ["en"], "gpu": False, "verbose": False}
+        kwargs = {
+            "lang_list": ["en"],
+            "gpu": False,
+            "verbose": False,
+            "user_network_directory": "/tmp",
+        }
         if model_dir:
             kwargs["model_storage_directory"] = model_dir
         _reader = easyocr.Reader(**kwargs)
