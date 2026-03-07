@@ -68,6 +68,13 @@ DENOMINATION_WORDS = {
     "50": "CINCUENTA",
 }
 
+# Processing constants
+MAX_WIDTH = 1200  # max px width before OCR (saves RAM & CPU proportionally)
+MIN_WIDTH = 1200  # min px width – upscale small images for better OCR accuracy
+# Precompiled regex patterns
+_RE_DIGITS = re.compile(r"^\d{9}$")
+_RE_SINGLE_LETTER = re.compile(r"^[A-Z]$")
+_RE_FIND_NUMBERS = re.compile(r"\d+")
 
 # ─── OCR reader singleton ──────────────────────────────────────────────────
 _reader = None
@@ -96,9 +103,29 @@ def preprocess_image(image_bytes: bytes):
     img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
     if img is None:
         raise ValueError("Could not decode the image")
+
+    h, w = img.shape[:2]
+    if w < MIN_WIDTH:
+        scale = MIN_WIDTH / w
+        img = cv2.resize(
+            img,
+            (MIN_WIDTH, int(h * scale)),
+            interpolation=cv2.INTER_CUBIC,
+        )
+    # ─ Down-scale large images (saves RAM & CPU)
+    elif w > MAX_WIDTH:
+        scale = MAX_WIDTH / w
+        img = cv2.resize(
+            img,
+            (MAX_WIDTH, int(h * scale)),
+            interpolation=cv2.INTER_AREA,
+        )
+
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     enhanced = cv2.equalizeHist(gray)
+    del gray  # free intermediate
     denoised = cv2.medianBlur(enhanced, 3)
+    del enhanced
     return img, denoised
 
 
@@ -130,18 +157,18 @@ def extract_text_regions(img_original, img_processed):
     reader = get_reader()
     elements = []
 
-    for region_id, info in regions.items():
+    from concurrent.futures import ThreadPoolExecutor
+
+    def ocr_region(region_id, info):
         x0, y0, x1, y1 = info["coords"]
         region = img_processed[y0:y1, x0:x1]
-
         if region.size == 0:
-            continue
-
+            return []
         results = reader.readtext(region, detail=1, paragraph=False)
-
+        region_elements = []
         for bbox, text, confidence in results:
             adjusted_bbox = [[p[0] + x0, p[1] + y0] for p in bbox]
-            elements.append(
+            region_elements.append(
                 {
                     "text": text,
                     "confidence": confidence,
@@ -150,6 +177,15 @@ def extract_text_regions(img_original, img_processed):
                     "region_id": region_id,
                 }
             )
+        return region_elements
+
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        futures = [
+            executor.submit(ocr_region, region_id, info)
+            for region_id, info in regions.items()
+        ]
+        for future in futures:
+            elements.extend(future.result())
 
     return elements
 
@@ -177,9 +213,9 @@ def find_serial_numbers(ocr_elements):
                 .upper()
                 .strip()
             )
-            if re.match(r"^\d{3,}$", cleaned):
+            if _RE_DIGITS.match(cleaned):
                 numbers.append({**elem, "index": i, "digits": cleaned})
-            if re.match(r"^[A-Z]$", cleaned):
+            if _RE_SINGLE_LETTER.match(cleaned):
                 letters.append({**elem, "index": i, "letter": cleaned})
 
         for num_elem in numbers:
@@ -245,7 +281,7 @@ def find_denomination(ocr_elements):
     # Find denomination number
     for elem in elems:
         cleaned = elem["text"].replace("O", "0").replace("o", "0").strip()
-        for num in re.findall(r"\d+", cleaned):
+        for num in _RE_FIND_NUMBERS.findall(cleaned):
             if num in VALID_DENOMINATIONS:
                 info["number"] = num
                 info["confidence_number"] = round(elem["confidence"] * 100, 2)
@@ -419,8 +455,6 @@ def analyze_bill(image_bytes: bytes) -> dict:
     img_original, img_processed = preprocess_image(image_bytes)
 
     elements = extract_text_regions(img_original, img_processed)
-
-    print(elements)
 
     serials = find_serial_numbers(elements)
     denomination = find_denomination(elements)
