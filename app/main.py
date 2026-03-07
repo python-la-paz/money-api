@@ -5,17 +5,16 @@ Endpoints:
   POST   /analyze        -> Analyze bill image, return full detection result
   POST   /analyze/image  -> Analyze bill image, return annotated PNG directly
   GET    /ranges         -> List configured observed ranges
-  POST   /ranges         -> Add an observed range for a denomination
-  DELETE /ranges/{denom} -> Remove all ranges for a denomination
   GET    /health         -> Health check
 """
 
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import JSONResponse, Response
+from mangum import Mangum
 import base64
 
 from detector import analyze_bill, OBSERVED_RANGES
-from models import AnalysisResponse, RangeInput
+from models import AnalysisResponse
 
 app = FastAPI(
     title="Bolivian Banknote Detector API",
@@ -91,49 +90,6 @@ def list_ranges():
     }
 
 
-@app.post("/ranges")
-def add_range(range_input: RangeInput):
-    """
-    Add an observed range for a denomination.
-    Creates the denomination key if it doesn't exist.
-    """
-    if range_input.range_start >= range_input.range_end:
-        raise HTTPException(
-            status_code=400,
-            detail="range_start must be less than range_end",
-        )
-
-    denom = range_input.denomination
-    new_range = (range_input.range_start, range_input.range_end)
-
-    if denom not in OBSERVED_RANGES:
-        OBSERVED_RANGES[denom] = []
-
-    if new_range not in OBSERVED_RANGES[denom]:
-        OBSERVED_RANGES[denom].append(new_range)
-
-    return {
-        "message": f"Range {new_range} added for denomination {denom} Bs",
-        "current_ranges": OBSERVED_RANGES[denom],
-    }
-
-
-@app.delete("/ranges/{denomination}")
-def delete_ranges(denomination: str):
-    """Remove all observed ranges for a denomination."""
-    if denomination in OBSERVED_RANGES:
-        removed = OBSERVED_RANGES[denomination]
-        OBSERVED_RANGES[denomination] = []
-        return {
-            "message": f"Ranges removed for {denomination} Bs",
-            "removed": removed,
-        }
-    raise HTTPException(
-        status_code=404,
-        detail=f"Denomination {denomination} not found",
-    )
-
-
 @app.get("/health")
 def health():
     """Health check."""
@@ -147,3 +103,6 @@ if __name__ == "__main__":
     import uvicorn
 
     uvicorn.run(app, host="0.0.0.0", port=8000)
+
+# Lambda entry point
+handler = Mangum(app)

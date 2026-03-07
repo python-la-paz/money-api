@@ -3,6 +3,7 @@ Bolivian banknote detector – OCR detection logic.
 Detects serial numbers and denomination on 10, 20, and 50 Bs bills.
 """
 
+import os
 import cv2
 import easyocr
 import re
@@ -75,7 +76,11 @@ _reader = None
 def get_reader():
     global _reader
     if _reader is None:
-        _reader = easyocr.Reader(["en"], gpu=False, verbose=False)
+        model_dir = os.environ.get("EASYOCR_MODEL_DIR")
+        kwargs = {"lang_list": ["en"], "gpu": False, "verbose": False}
+        if model_dir:
+            kwargs["model_storage_directory"] = model_dir
+        _reader = easyocr.Reader(**kwargs)
     return _reader
 
 
